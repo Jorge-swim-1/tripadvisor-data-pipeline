@@ -87,13 +87,3 @@ python machine_learning/modelo_ml.py
 **Resultados:**  
 La terminal devolverá las métricas de error (**RMSE**), el **Coeficiente de Determinación (R²)** y el listado porcentual de importancia de cada variable estructural en el éxito del restaurante.
 
-***
-
-### ¡Y ahora sí, súbelo a GitHub para acabar!
-
-Una vez hayas guardado el archivo `README.md` en tu VS Code con todo este texto, ve a tu terminal y ejecuta estos tres comandos para actualizar la página de GitHub:
-
-```bash
-git add README.md
-git commit -m "Instrucciones de ejecución añadidas al README"
-git push origin main
