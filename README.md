@@ -1,4 +1,4 @@
-# 🍽️ Predicción de Éxito en TripAdvisor: Pipeline ETL, Streaming y Machine Learning
+#  Predicción de Éxito en TripAdvisor: Pipeline ETL, Streaming y Machine Learning
 
 **Universidad:** Universidad Rey Juan Carlos (URJC)  
 **Asignatura:** Sistemas Distribuidos de Procesamiento de Datos II (SDPD2) - Grado en Ciencia e Ingeniería de Datos  
@@ -7,10 +7,10 @@
 
 ---
 
-## 🎯 Descripción del Proyecto
+##  Descripción del Proyecto
 Este proyecto resuelve un problema analítico de negocio: **¿Podemos predecir la valoración media (`avg_rating`) que obtendrá un nuevo restaurante en Europa antes de su apertura?** Para responder a esta pregunta, hemos diseñado e implementado una arquitectura Big Data distribuida de extremo a extremo que procesa casi un millón de registros. El ecosistema abarca la orquestación ETL, la ingesta de eventos en streaming y el modelado predictivo distribuido.
 
-## 🏗️ Arquitectura Tecnológica y Fases
+##  Arquitectura Tecnológica y Fases
 1. **Fase 1: Orquestación ETL (Apache Airflow + Polars)**
    - Extracción, validación estricta y Feature Engineering vectorizado.
    - *Patrones Avanzados:* Prevención de Data Leakage, Window Functions (contexto competitivo), Dead Letter Queue (DLQ) para anomalías, y Data Lake particionado por país con PyArrow.
@@ -24,7 +24,7 @@ Este proyecto resuelve un problema analítico de negocio: **¿Podemos predecir l
 
 ---
 
-## ⚙️ Requisitos Previos (Prerequisites)
+##  Requisitos Previos (Prerequisites)
 Para ejecutar este entorno de forma local, es necesario disponer de:
 * **Docker y Docker Compose** (para levantar el clúster de Kafka).
 * **Python 3.11+** (se recomienda el uso de entornos virtuales `venv` o `uv`).
@@ -32,7 +32,7 @@ Para ejecutar este entorno de forma local, es necesario disponer de:
 
 ---
 
-## 🚀 Instrucciones de Despliegue y Ejecución
+##  Instrucciones de Despliegue y Ejecución
 
 ### 1. Clonación y Entorno Virtual
 Clona este repositorio en tu máquina local e instala las dependencias necesarias:
@@ -42,6 +42,8 @@ cd tripadvisor-data-pipeline
 python -m venv .venv
 source .venv/bin/activate  # En Windows: .venv\Scripts\activate
 pip install apache-airflow polars pyarrow pyspark==3.5.0
+```
+
 
 ### 2. Fase 1: Despliegue de Infraestructura y Orquestación (Airflow)
 
