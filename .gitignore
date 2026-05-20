@@ -1,11 +1,20 @@
-# Ignorar datos pesados y cuarentenas
+# Datos pesados y cuarentenas
 data/
 dlq/
 salida1_txt/
 checkpoints/
 
-# Ignorar entornos virtuales y logs de Airflow
+# Entornos virtuales y cachés
 .venv/
 venv/
-logs/
 __pycache__/
+.vscode/
+*.egg-info/
+
+# Archivos locales y de seguridad de Apache Airflow
+logs/
+airflow.db
+airflow-webserver.pid
+airflow.cfg
+webserver_config.py
+standalone_admin_password.txt
