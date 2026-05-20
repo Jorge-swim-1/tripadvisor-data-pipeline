@@ -1,3 +1,14 @@
+"""
+Script: modelos_ml2.py
+Fase 3: Modelado Predictivo Avanzado con Random Forest (Spark MLlib).
+Autores: Jorge de Dios Orellana y Rafael Cañas
+
+Descripción:
+Implementa un modelo de ensamble (Random Forest Regressor) para capturar 
+relaciones no lineales entre las variables estructurales del restaurante y su nota. 
+Incluye cálculo de 'Feature Importances' para interpretabilidad del negocio.
+"""
+
 import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
@@ -5,30 +16,25 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.regression import RandomForestRegressor
 from pyspark.ml.evaluation import RegressionEvaluator
 
-# 1. Configuramos el entorno y arrancamos Spark
+# Configuración del entorno
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-11-openjdk-amd64"
 
+# 1. INICIALIZAR SPARK SESSION
 spark = SparkSession.builder \
-    .appName("TripAdvisor_ML_Model") \
+    .appName("TripAdvisor_RF_Model") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 
 print("1. Leyendo datos desde el Data Lake particionado...")
-# Spark lee toda la carpeta y entiende las particiones automáticamente
-# Usamos la ruta absoluta y el comodín (*/*.parquet) para obligar a Spark
-# a entrar en todas las subcarpetas y leer los archivos directamente.
 ruta_data_lake = "/home/jorge/proyecto_sdpd2/data/processed_lake/*/*.parquet"
 df = spark.read.parquet(ruta_data_lake)
 
-# 2. Limpieza final para el modelo
-# Quitamos los que tienen nota 0 (los que rellenamos en Airflow por ser nulos)
-# porque predecir un 0 arruinaría la matemática de la regresión.
+# 2. LIMPIEZA
 df_clean = df.filter(col("avg_rating") > 0)
 print(f"Total de restaurantes útiles para entrenar: {df_clean.count()}")
 
-# 3. Ensamblaje de Variables (VectorAssembler)
-# Spark ML exige que todas las variables predictoras estén agrupadas en una única columna tipo Vector
+# 3. ENSAMBLAJE DE VARIABLES
 columnas_predictoras = [
     "total_reviews_count", 
     "price_level_num", 
@@ -42,24 +48,19 @@ assembler = VectorAssembler(
     inputCols=columnas_predictoras,
     outputCol="features"
 )
-
 df_features = assembler.transform(df_clean)
-
-# Seleccionamos solo las columnas que el algoritmo necesita
 df_ml = df_features.select(col("features"), col("avg_rating").alias("label"))
 
-# 4. División Train / Test (80% para entrenar, 20% para examinar al modelo)
+# 4. DIVISIÓN TRAIN / TEST
 train_data, test_data = df_ml.randomSplit([0.8, 0.2], seed=42)
-print(f"Datos de Entrenamiento: {train_data.count()} | Datos de Test: {test_data.count()}")
 
-
-# 5. Entrenamiento del Modelo (Random Forest)
+# 5. ENTRENAMIENTO (RANDOM FOREST)
 print("\n2. Entrenando el modelo de Random Forest...")
-# maxBins tiene que ser alto porque is_claimed, etc. son categóricas
+# Configuración: 50 árboles para estabilidad, profundidad 5 para evitar overfitting
 rf = RandomForestRegressor(featuresCol="features", labelCol="label", numTrees=50, maxDepth=5)
 modelo_rf = rf.fit(train_data)
 
-# 6. Evaluación del Modelo con los datos de Test
+# 6. EVALUACIÓN
 print("3. Evaluando el modelo...")
 predicciones = modelo_rf.transform(test_data)
 
@@ -76,11 +77,11 @@ print(f"Error Cuadrático Medio (RMSE): {rmse:.4f}")
 print(f"Coeficiente de Determinación (R2): {r2:.4f}")
 print("-" * 50)
 
-# 7. Impacto de las variables (Feature Importances)
+# 7. INTERPRETABILIDAD DE NEGOCIO (Feature Importance)
+# Esta es la parte más importante para tu defensa oral
 print("Importancia de cada variable en las decisiones del modelo:")
 importancias = modelo_rf.featureImportances.toArray()
 for col_name, importancia in zip(columnas_predictoras, importancias):
-    # Lo multiplicamos por 100 para verlo en porcentaje
     print(f" - {col_name}: {importancia * 100:.2f}%")
 
 spark.stop()

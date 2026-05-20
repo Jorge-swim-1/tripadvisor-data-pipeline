@@ -1,3 +1,14 @@
+"""
+Script: modelo_ml.py
+Fase 3: Modelado Predictivo con Apache Spark MLlib.
+Autores: Jorge de Dios Orellana y Rafael Cañas
+
+Descripción:
+Realiza el entrenamiento y evaluación de un modelo de Regresión Lineal 
+sobre datos particionados. Implementa ensamblaje de vectores (VectorAssembler), 
+división de dataset (train/test) y evaluación métrica (RMSE/R2).
+"""
+
 import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
@@ -5,9 +16,11 @@ from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
 
-# 1. Configuramos el entorno y arrancamos Spark
+# Configuración del entorno de ejecución
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-11-openjdk-amd64"
 
+# 1. INICIALIZAR SPARK SESSION
+# Sesión configurada para el procesamiento distribuido del Data Lake
 spark = SparkSession.builder \
     .appName("TripAdvisor_ML_Model") \
     .getOrCreate()
@@ -15,20 +28,17 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("WARN")
 
 print("1. Leyendo datos desde el Data Lake particionado...")
-# Spark lee toda la carpeta y entiende las particiones automáticamente
-# Usamos la ruta absoluta y el comodín (*/*.parquet) para obligar a Spark
-# a entrar en todas las subcarpetas y leer los archivos directamente.
+# Lectura de particiones de manera transparente gracias a la estructura de directorios
 ruta_data_lake = "/home/jorge/proyecto_sdpd2/data/processed_lake/*/*.parquet"
 df = spark.read.parquet(ruta_data_lake)
 
-# 2. Limpieza final para el modelo
-# Quitamos los que tienen nota 0 (los que rellenamos en Airflow por ser nulos)
-# porque predecir un 0 arruinaría la matemática de la regresión.
+# 2. LIMPIEZA Y PREPARACIÓN DEL DATASET
+# Filtrado de ruido: registros sin nota (nulos imputados) no aportan valor al aprendizaje
 df_clean = df.filter(col("avg_rating") > 0)
 print(f"Total de restaurantes útiles para entrenar: {df_clean.count()}")
 
-# 3. Ensamblaje de Variables (VectorAssembler)
-# Spark ML exige que todas las variables predictoras estén agrupadas en una única columna tipo Vector
+# 3. ENSAMBLAJE DE VARIABLES (VectorAssembler)
+# Spark ML requiere un único vector de características (input) para el algoritmo
 columnas_predictoras = [
     "total_reviews_count", 
     "price_level_num", 
@@ -45,22 +55,24 @@ assembler = VectorAssembler(
 
 df_features = assembler.transform(df_clean)
 
-# Seleccionamos solo las columnas que el algoritmo necesita
+# Estructura final: features (vectores) vs label (valor objetivo)
 df_ml = df_features.select(col("features"), col("avg_rating").alias("label"))
 
-# 4. División Train / Test (80% para entrenar, 20% para examinar al modelo)
+# 4. DIVISIÓN TRAIN / TEST
+# Split 80/20 con semilla fija para garantizar la reproducibilidad de resultados
 train_data, test_data = df_ml.randomSplit([0.8, 0.2], seed=42)
 print(f"Datos de Entrenamiento: {train_data.count()} | Datos de Test: {test_data.count()}")
 
-# 5. Entrenamiento del Modelo (Regresión Lineal)
+# 5. ENTRENAMIENTO DEL MODELO
 print("\n2. Entrenando el modelo de Regresión Lineal...")
 lr = LinearRegression(featuresCol="features", labelCol="label")
 modelo = lr.fit(train_data)
 
-# 6. Evaluación del Modelo con los datos de Test
+# 6. EVALUACIÓN DE MÉTRICAS
 print("3. Evaluando el modelo...")
 predicciones = modelo.transform(test_data)
 
+# Métricas de error: RMSE para magnitud del error y R2 para bondad del ajuste
 evaluator_rmse = RegressionEvaluator(labelCol="label", predictionCol="prediction", metricName="rmse")
 evaluator_r2 = RegressionEvaluator(labelCol="label", predictionCol="prediction", metricName="r2")
 
@@ -71,10 +83,11 @@ print("-" * 50)
 print(" RESULTADOS DEL MODELO")
 print("-" * 50)
 print(f"Error Cuadrático Medio (RMSE): {rmse:.4f}")
-print(f"Coeficiente de Determinación (R2): {r2:.4f}")
+print(f"Coheficiente de Determinación (R2): {r2:.4f}")
 print("-" * 50)
 
-# 7. Impacto de las variables (Coeficientes)
+# 7. INTERPRETABILIDAD (Feature Importance)
+# Extracción de coeficientes para explicar el impacto de cada variable en el modelo
 print("Peso matemático de cada variable en la nota final:")
 for col_name, peso in zip(columnas_predictoras, modelo.coefficients):
     print(f" - {col_name}: {peso:.4f}")

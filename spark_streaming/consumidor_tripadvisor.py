@@ -1,26 +1,37 @@
+"""
+Script: consumidor_tripadvisor.py
+Fase 2: Consumo en tiempo real con Spark Structured Streaming.
+Autores: Jorge de Dios Orellana y Rafael Cañas
+
+Descripción:
+Establece un consumidor de Apache Kafka que deserializa mensajes JSON, 
+aplica transformaciones de filtrado (Modo Append) y agregaciones geográficas 
+en tiempo real (Modo Complete), demostrando resiliencia y escalabilidad.
+"""
+
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
 from pyspark.sql.functions import from_json, col
-
 import os
-# Configuramos la variable de entorno directamente desde Python
+
+# Configuración del entorno: Definición del motor de ejecución de Spark
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-11-openjdk-amd64"
 
-# ---------------------------------------------------------
+
 # 1. INICIALIZAR SPARK SESSION
-# ---------------------------------------------------------
-# Importante: Incluimos el paquete de Kafka necesario para la conexión
+
+# Se añade el conector de Kafka para integrar el clúster con Spark
 spark = SparkSession.builder \
     .appName("TripAdvisorStreaming") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
     .getOrCreate()
 
-# Reducimos los logs para que la consola esté limpia y las capturas de pantalla queden bien
 spark.sparkContext.setLogLevel("WARN")
 
-# ---------------------------------------------------------
+
 # 2. DEFINIR EL ESQUEMA (StructType)
-# ---------------------------------------------------------
+
+# Esquema estricto para garantizar la calidad del dato en tiempo real
 tripadvisor_schema = StructType([
     StructField("restaurant_name", StringType(), True),
     StructField("country", StringType(), True),
@@ -39,9 +50,9 @@ tripadvisor_schema = StructType([
 
 print("Iniciando la conexión con Kafka en localhost:9092...")
 
-# ---------------------------------------------------------
+
 # 3. LEER EL FLUJO DESDE KAFKA (FASE DE INGESTA)
-# ---------------------------------------------------------
+
 kafka_df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
@@ -49,27 +60,27 @@ kafka_df = spark.readStream \
     .option("startingOffsets", "earliest") \
     .load()
 
-# 4. PARSEAR EL JSON BINARIO A COLUMNAS TABULARES
+# Parseo de JSON binario a DataFrame relacional
 parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_str") \
     .select(from_json(col("json_str"), tripadvisor_schema).alias("data")) \
     .select("data.*")
 
 
-# =========================================================
-# BLOQUE DE EJECUCIÓN DE CONSULTAS (STREAMING)
-# =========================================================
 
-# ---> CONSULTA 0: Mostrar datos RAW (Ideal para tu primera captura de pantalla)
+# BLOQUE DE EJECUCIÓN DE CONSULTAS (STREAMING)
+
+
+# ---> CONSULTA 0: Auditoría visual del flujo raw
 query_raw = parsed_df.writeStream \
     .outputMode("append") \
     .format("console") \
     .queryName("raw_data") \
     .start()
 
-# ---> CONSULTA 1: Filtrado (Sin gluten y Rating >= 4.5) - MODO APPEND
+# ---> CONSULTA 1: Filtrado de nicho dietético (Modo Append)
+# Escribe en CSV garantizando la inmutabilidad de los resultados
 consulta1_df = parsed_df.filter((col("is_gluten_free") == 1) & (col("avg_rating") >= 4.5))
 
-# Exporta los resultados a una carpeta 'salida1' en formato CSV (texto plano)
 query1 = consulta1_df.writeStream \
     .outputMode("append") \
     .format("csv") \
@@ -77,18 +88,18 @@ query1 = consulta1_df.writeStream \
     .option("checkpointLocation", "./checkpoints/consulta1") \
     .start()
 
-# ---> CONSULTA 2: Agregación (Conteo por país) - MODO COMPLETE
+# ---> CONSULTA 2: Agregación analítica por país (Modo Complete)
+# Fuerza el re-cálculo global de la tabla con cada micro-lote
 consulta2_df = parsed_df.groupBy("country").count()
 
-# Nota: El modo complete requiere ver toda la tabla a la vez. Lo sacamos por consola
-# para que podáis hacerle captura a cómo cambian los números en tiempo real.
 query2 = consulta2_df.writeStream \
     .outputMode("complete") \
     .format("console") \
     .queryName("conteo_paises") \
     .start()
 
-# ---------------------------------------------------------
-# 5. MANTENER EL SCRIPT VIVO (Imprescindible en Streaming)
-# ---------------------------------------------------------
+
+# 5. MANTENER EL SCRIPT VIVO
+
+# Mantiene la sesión activa para procesar eventos indefinidamente
 spark.streams.awaitAnyTermination()

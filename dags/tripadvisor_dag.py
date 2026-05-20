@@ -1,9 +1,18 @@
+"""
+DAG: tripadvisor_etl_pipeline_senior
+Fase 1: Orquestación ETL con Apache Airflow
+Autores: Jorge de Dios Orellana y Rafael Cañas
+
+Pipeline modular que gestiona la ingesta, validación (DLQ), 
+transformación particionada y carga en Kafka del dataset de TripAdvisor.
+Implementa idempotencia mediante Offset Watermarking.
+"""
+
 import os
 import tomli
 import polars as pl
 import pyarrow.dataset as ds
 from datetime import datetime, timedelta
-# Usamos decorators que es lo más seguro en Airflow 2.x
 from airflow.decorators import dag, task
 from confluent_kafka import Producer
 import json
@@ -39,13 +48,12 @@ def tripadvisor_pipeline():
         ruta_csv = config['paths']['raw_csv']
         ruta_dlq = config['paths']['dlq_parquet']
         watermark_path = config['paths']['watermark_file']
-        
-        # Rescatamos la ruta limpia de tu config original, o usamos una por defecto
         ruta_clean = config['paths'].get('clean_parquet', '/home/jorge/proyecto_sdpd2/data/cleaned_data.parquet')
         
         os.makedirs(os.path.dirname(ruta_clean), exist_ok=True)
         os.makedirs(os.path.dirname(ruta_dlq), exist_ok=True)
 
+        # Control de idempotencia (Watermarking)
         last_row = 0
         if os.path.exists(watermark_path):
             with open(watermark_path, 'r') as f:
@@ -54,6 +62,7 @@ def tripadvisor_pipeline():
         df_raw = pl.read_csv(ruta_csv, ignore_errors=True)
         filas_totales = df_raw.height
         
+        # Filtro de nuevos registros
         nuevas_filas = filas_totales - last_row
         if nuevas_filas <= 0:
             print(f"No hay datos nuevos. El Watermark está en la fila {last_row}.")
@@ -62,18 +71,18 @@ def tripadvisor_pipeline():
         print(f"Procesando {nuevas_filas} filas nuevas.")
         df_incremental = df_raw.slice(last_row, nuevas_filas)
         
-        # DLQ y filtro
+        # Auditoría de calidad y segregación DLQ
         df_good, df_bad = separar_dlq(df_incremental, config['processing']['critical_columns'])
         
         if df_bad.height > 0:
             df_bad.write_parquet(ruta_dlq)
             
-        # Guardamos los datos validados para la siguiente tarea
         df_good.write_parquet(ruta_clean)
         
+        # Actualización del punto de control
         with open(watermark_path, 'w') as f:
             json.dump({'last_row': filas_totales}, f)
-            
+        
         return ruta_clean
 
     @task
@@ -86,9 +95,9 @@ def tripadvisor_pipeline():
         ruta_partitioned = config['paths']['partitioned_dir']
         os.makedirs(ruta_partitioned, exist_ok=True)
 
-        # Leemos los datos validados por la Tarea 1
         df_good = pl.read_parquet(input_path)
             
+        # Aplicación de lógica de negocio (Transformaciones vectorizadas)
         df_transformed = feature_engineering_avanzado(df_good, config['processing'])
         df_transformed = aplicar_window_functions(df_transformed)
         
@@ -100,7 +109,7 @@ def tripadvisor_pipeline():
         ]
         df_final = df_transformed.select(columnas_finales)
 
-        # Particionamos
+        # Escritura en Data Lake con particionado físico (Partition Pruning)
         table_final = df_final.to_arrow()
         ds.write_dataset(
             table_final, base_dir=ruta_partitioned, format="parquet", 
@@ -131,11 +140,11 @@ def tripadvisor_pipeline():
         records = df_safe.to_dicts()
         count = 0
         
+        # Producción de mensajes en formato JSON
         for record in records:
             producer.produce(
                 topic=config['kafka']['topic_name'],
                 value=json.dumps(record).encode('utf-8'),
-                # Usamos una función lambda vacía para el callback si no queremos procesar errores por consola
                 callback=lambda err, msg: None 
             )
             count += 1
@@ -144,7 +153,7 @@ def tripadvisor_pipeline():
         producer.flush()
         print(f"¡ÉXITO! {count} registros enviados a Kafka.")
 
-    # Flujo de dependencias (XComs pasando las rutas de una tarea a otra)
+    # Flujo de dependencias (Orquestación secuencial)
     ruta_limpia = extract_and_validate()
     ruta_particionada = transform_and_partition(ruta_limpia)
     load_to_kafka(ruta_particionada)
