@@ -42,3 +42,58 @@ cd tripadvisor-data-pipeline
 python -m venv .venv
 source .venv/bin/activate  # En Windows: .venv\Scripts\activate
 pip install apache-airflow polars pyarrow pyspark==3.5.0
+
+### 2. Fase 1: Despliegue de Infraestructura y Orquestación (Airflow)
+
+Arranca los servicios de mensajería (Kafka y Zookeeper) en background:
+
+```bash
+docker-compose up -d
+```
+
+Inicializa el entorno standalone de Apache Airflow:
+
+```bash
+export AIRFLOW_HOME=$(pwd)
+airflow standalone
+```
+
+**Acción:**  
+Abre un navegador en `http://localhost:8080`, accede con las credenciales mostradas en la terminal, localiza el DAG `tripadvisor_etl_pipeline` y actívalo. El sistema procesará el Data Lake y comenzará a inyectar eventos JSON en el tópico `tripadvisor_restaurants`.
+
+---
+
+## 3. Fase 2: Consumo en Tiempo Real (Spark Streaming)
+
+Abre una nueva terminal (asegúrate de activar el entorno virtual y tener Kafka en ejecución) y lanza el consumidor:
+
+```bash
+python spark_streaming/consumidor_tripadvisor.py
+```
+
+**Acción:**  
+Spark interceptará el flujo de Kafka. Verás en consola los micro-lotes (*Batches*) actualizando el conteo por país, mientras exporta los restaurantes de alta gama aptos para celíacos a la carpeta `salida1_txt/`.
+
+---
+
+## 4. Fase 3: Inferencia y Machine Learning
+
+Una vez generado el Data Lake limpio, ejecuta el modelado predictivo:
+
+```bash
+python machine_learning/modelo_ml.py
+```
+
+**Resultados:**  
+La terminal devolverá las métricas de error (**RMSE**), el **Coeficiente de Determinación (R²)** y el listado porcentual de importancia de cada variable estructural en el éxito del restaurante.
+
+***
+
+### ¡Y ahora sí, súbelo a GitHub para acabar!
+
+Una vez hayas guardado el archivo `README.md` en tu VS Code con todo este texto, ve a tu terminal y ejecuta estos tres comandos para actualizar la página de GitHub:
+
+```bash
+git add README.md
+git commit -m "Instrucciones de ejecución añadidas al README"
+git push origin main
