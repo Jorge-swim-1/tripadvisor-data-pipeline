@@ -1,0 +1,152 @@
+import os
+import tomli
+import polars as pl
+import pyarrow.dataset as ds
+from datetime import datetime, timedelta
+# Usamos decorators que es lo más seguro en Airflow 2.x
+from airflow.decorators import dag, task
+from confluent_kafka import Producer
+import json
+
+from utils.transformaciones import separar_dlq, aplicar_window_functions, feature_engineering_avanzado
+
+CONFIG_PATH = "/home/jorge/proyecto_sdpd2/config.toml" 
+with open(CONFIG_PATH, "rb") as f:
+    config = tomli.load(f)
+
+default_args = {
+    'owner': 'grupo_sdpd2',
+    'depends_on_past': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=1),
+}
+
+@dag(
+    dag_id='tripadvisor_etl_pipeline_senior',
+    default_args=default_args,
+    description='Pipeline ETL de 3 Fases: Extracción, Transformación y Carga (Kafka)',
+    schedule=None,
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    tags=['SDPD2', 'ETL', 'Senior', 'Idempotente'],
+)
+def tripadvisor_pipeline():
+
+    @task
+    def extract_and_validate() -> str:
+        """TAREA 1 (EXTRACT): Lee datos, aplica Watermark y audita nulos (DLQ)."""
+        print("Fase 1: Extracción y Validación (DLQ) con Watermarking...")
+        ruta_csv = config['paths']['raw_csv']
+        ruta_dlq = config['paths']['dlq_parquet']
+        watermark_path = config['paths']['watermark_file']
+        
+        # Rescatamos la ruta limpia de tu config original, o usamos una por defecto
+        ruta_clean = config['paths'].get('clean_parquet', '/home/jorge/proyecto_sdpd2/data/cleaned_data.parquet')
+        
+        os.makedirs(os.path.dirname(ruta_clean), exist_ok=True)
+        os.makedirs(os.path.dirname(ruta_dlq), exist_ok=True)
+
+        last_row = 0
+        if os.path.exists(watermark_path):
+            with open(watermark_path, 'r') as f:
+                last_row = json.load(f).get('last_row', 0)
+
+        df_raw = pl.read_csv(ruta_csv, ignore_errors=True)
+        filas_totales = df_raw.height
+        
+        nuevas_filas = filas_totales - last_row
+        if nuevas_filas <= 0:
+            print(f"No hay datos nuevos. El Watermark está en la fila {last_row}.")
+            return "NO_DATA"
+            
+        print(f"Procesando {nuevas_filas} filas nuevas.")
+        df_incremental = df_raw.slice(last_row, nuevas_filas)
+        
+        # DLQ y filtro
+        df_good, df_bad = separar_dlq(df_incremental, config['processing']['critical_columns'])
+        
+        if df_bad.height > 0:
+            df_bad.write_parquet(ruta_dlq)
+            
+        # Guardamos los datos validados para la siguiente tarea
+        df_good.write_parquet(ruta_clean)
+        
+        with open(watermark_path, 'w') as f:
+            json.dump({'last_row': filas_totales}, f)
+            
+        return ruta_clean
+
+    @task
+    def transform_and_partition(input_path: str) -> str:
+        """TAREA 2 (TRANSFORM): Aplica Feature Engineering y particiona."""
+        if input_path == "NO_DATA":
+            return "NO_DATA"
+            
+        print(f"Fase 2: Feature Engineering leyendo desde {input_path}...")
+        ruta_partitioned = config['paths']['partitioned_dir']
+        os.makedirs(ruta_partitioned, exist_ok=True)
+
+        # Leemos los datos validados por la Tarea 1
+        df_good = pl.read_parquet(input_path)
+            
+        df_transformed = feature_engineering_avanzado(df_good, config['processing'])
+        df_transformed = aplicar_window_functions(df_transformed)
+        
+        columnas_finales = [
+            "restaurant_name", "country", "city", "latitude", "longitude", 
+            "avg_rating", "city_avg_rating", "rating_diff_city", 
+            "total_reviews_count", "price_level_num", 
+            "is_claimed", "is_veg_friendly", "is_gluten_free"
+        ]
+        df_final = df_transformed.select(columnas_finales)
+
+        # Particionamos
+        table_final = df_final.to_arrow()
+        ds.write_dataset(
+            table_final, base_dir=ruta_partitioned, format="parquet", 
+            partitioning=["country"], existing_data_behavior="overwrite_or_ignore"
+        )
+        return ruta_partitioned
+
+    @task
+    def load_to_kafka(input_path: str):
+        """TAREA 3 (LOAD): Carga las particiones en el tópico de Kafka."""
+        if input_path == "NO_DATA":
+            print("Carga en Kafka omitida. No hubo datos nuevos.")
+            return
+
+        print(f"Fase 3: Leyendo dataset particionado desde {input_path}...")
+        df = pl.read_parquet(f"{input_path}/**/*.parquet")
+        df_safe = df.head(5000) 
+        
+        kafka_config = {
+            'bootstrap.servers': config['kafka']['bootstrap_servers'],
+            'acks': config['kafka']['acks'],
+            'message.timeout.ms': 10000,
+            'delivery.timeout.ms': 15000
+        }
+        producer = Producer(kafka_config)
+        
+        print(f"Enviando mensajes al topic '{config['kafka']['topic_name']}'...")
+        records = df_safe.to_dicts()
+        count = 0
+        
+        for record in records:
+            producer.produce(
+                topic=config['kafka']['topic_name'],
+                value=json.dumps(record).encode('utf-8'),
+                # Usamos una función lambda vacía para el callback si no queremos procesar errores por consola
+                callback=lambda err, msg: None 
+            )
+            count += 1
+            producer.poll(0)
+            
+        producer.flush()
+        print(f"¡ÉXITO! {count} registros enviados a Kafka.")
+
+    # Flujo de dependencias (XComs pasando las rutas de una tarea a otra)
+    ruta_limpia = extract_and_validate()
+    ruta_particionada = transform_and_partition(ruta_limpia)
+    load_to_kafka(ruta_particionada)
+
+dag_instance = tripadvisor_pipeline()

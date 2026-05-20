@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdpd2_tripadvisor_etl"
+version = "1.0.0"
+description = "Pipeline ETL de TripAdvisor con Apache Airflow y Kafka"
+readme = "README.md"
+requires-python = ">=3.9"
+
+# Aquí definimos las librerías exactas que necesita nuestro proyecto
+dependencies = [
+    "apache-airflow==2.9.0",
+    "polars>=0.20.0",
+    "confluent-kafka>=2.3.0",
+    "tomli>=2.0.1",
+    "jupyter" # Para hacer el Análisis Exploratorio (EDA) después
+]
+
+[tool.setuptools.packages.find]
+include = ["utils*", "dags*"]

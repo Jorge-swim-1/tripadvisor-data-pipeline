@@ -1,0 +1,11 @@
+# Ignorar datos pesados y cuarentenas
+data/
+dlq/
+salida1_txt/
+checkpoints/
+
+# Ignorar entornos virtuales y logs de Airflow
+.venv/
+venv/
+logs/
+__pycache__/

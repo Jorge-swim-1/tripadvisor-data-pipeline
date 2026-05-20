@@ -1,0 +1,39 @@
+# config.toml
+# Archivo de configuración centralizado para el pipeline ETL de TripAdvisor
+
+[airflow]
+owner = "sdpd2_grupo"
+retries = 1
+retry_delay_minutes = 2
+
+# -----------------------------------------------------------------------------
+# Rutas absolutas del entorno WSL (Linux)
+# Importante: Airflow necesita la ruta completa para no perderse al buscar los archivos
+
+[paths]
+raw_csv = "/home/jorge/proyecto_sdpd2/data/tripadvisor_european_restaurants.csv"
+# Nueva ruta para el Data Lake particionado (datos limpios)
+partitioned_dir = "/home/jorge/proyecto_sdpd2/data/processed_lake/"
+# Nueva ruta para la Dead Letter Queue (datos corruptos)
+dlq_parquet = "/home/jorge/proyecto_sdpd2/data/dlq/corrupted_records.parquet"
+watermark_file = "/home/jorge/proyecto_sdpd2/data/watermark.json" # <--- NUEVO
+# -----------------------------------------------------------------------------
+# Configuración del clúster de Kafka (Docker local)
+
+[kafka]
+bootstrap_servers = "localhost:9092"
+topic_name = "tripadvisor_restaurants"
+acks = "all"
+
+# -----------------------------------------------------------------------------
+# Parámetros para la limpieza y Feature Engineering
+
+[processing]
+# Columnas críticas: si falta alguna, descartamos el registro (No Data Leakage)
+critical_columns = ["restaurant_name", "country", "latitude", "longitude"]
+
+# Columnas numéricas: rellenamos valores nulos con 0
+numeric_columns = ["avg_rating", "total_reviews_count"]
+
+# Columnas de listas a transformar (mantenido por si se necesita escalar en el futuro)
+list_columns = ["cuisines"]

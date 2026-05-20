@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+dags/__init__.py
+dags/tripadvisor_dag.py
+sdpd2_tripadvisor_etl.egg-info/PKG-INFO
+sdpd2_tripadvisor_etl.egg-info/SOURCES.txt
+sdpd2_tripadvisor_etl.egg-info/dependency_links.txt
+sdpd2_tripadvisor_etl.egg-info/requires.txt
+sdpd2_tripadvisor_etl.egg-info/top_level.txt
+utils/__init__.py
+utils/transformaciones.py
