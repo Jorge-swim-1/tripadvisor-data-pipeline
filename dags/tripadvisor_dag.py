@@ -107,13 +107,14 @@ def tripadvisor_pipeline():
             "total_reviews_count", "price_level_num", 
             "is_claimed", "is_veg_friendly", "is_gluten_free"
         ]
-        df_final = df_transformed.select(columnas_finales)
+        df_final = df_transformed.select(columnas_finales) # me quedo con las columans que me interesan enviar a Spark
 
         # Escritura en Data Lake con particionado físico (Partition Pruning)
-        table_final = df_final.to_arrow()
+        table_final = df_final.to_arrow() # lo pasamos al formato de memoria pyarrow
         ds.write_dataset(
             table_final, base_dir=ruta_partitioned, format="parquet", 
-            partitioning=["country"], existing_data_behavior="overwrite_or_ignore"
+            partitioning=["country"], existing_data_behavior="overwrite_or_ignore" # crea las columnas de cada pais y borra la original
+            # y no se crean carpetas duplicadas, se sobreescriben o se ignoran.
         )
         return ruta_partitioned
 
@@ -125,7 +126,7 @@ def tripadvisor_pipeline():
             return
 
         print(f"Fase 3: Leyendo dataset particionado desde {input_path}...")
-        df = pl.read_parquet(f"{input_path}/**/*.parquet")
+        df = pl.read_parquet(f"{input_path}/**/*.parquet") # coge todos los archivos parquet sueltos, los junta y monta un solo dataframe en memoria
         df_safe = df.head(5000) 
         
         kafka_config = {
@@ -137,20 +138,20 @@ def tripadvisor_pipeline():
         producer = Producer(kafka_config)
         
         print(f"Enviando mensajes al topic '{config['kafka']['topic_name']}'...")
-        records = df_safe.to_dicts()
+        records = df_safe.to_dicts() # Transforma el DataFrame de filas y columnas a una lista de diccionarios.
         count = 0
         
         # Producción de mensajes en formato JSON
         for record in records:
-            producer.produce(
-                topic=config['kafka']['topic_name'],
-                value=json.dumps(record).encode('utf-8'),
+            producer.produce( # enviamos el paquete a kafka
+                topic=config['kafka']['topic_name'], 
+                value=json.dumps(record).encode('utf-8'), # json.dumps = convertir el diccionario a texto json para luego aplastarlo a bytes en UTF-8
                 callback=lambda err, msg: None 
             )
             count += 1
             producer.poll(0)
             
-        producer.flush()
+        producer.flush() # Prohibido terminar el programa hasta que el último byte del último mensaje haya llegado sano y salvo a Kafka
         print(f"¡ÉXITO! {count} registros enviados a Kafka.")
 
     # Flujo de dependencias (Orquestación secuencial)
@@ -158,4 +159,4 @@ def tripadvisor_pipeline():
     ruta_particionada = transform_and_partition(ruta_limpia)
     load_to_kafka(ruta_particionada)
 
-dag_instance = tripadvisor_pipeline()
+dag_instance = tripadvisor_pipeline() # Llamamos a la función principal para que Airflow registre el DAG

@@ -34,6 +34,7 @@ df = spark.read.parquet(ruta_data_lake)
 
 # 2. LIMPIEZA Y PREPARACIÓN DEL DATASET
 # Filtrado de ruido: registros sin nota (nulos imputados) no aportan valor al aprendizaje
+# garbage in - garbage out
 df_clean = df.filter(col("avg_rating") > 0)
 print(f"Total de restaurantes útiles para entrenar: {df_clean.count()}")
 
@@ -66,10 +67,12 @@ print(f"Datos de Entrenamiento: {train_data.count()} | Datos de Test: {test_data
 # 5. ENTRENAMIENTO DEL MODELO
 print("\n2. Entrenando el modelo de Regresión Lineal...")
 lr = LinearRegression(featuresCol="features", labelCol="label")
+# Entrenamos el estimator (modelo vacío)
 modelo = lr.fit(train_data)
 
 # 6. EVALUACIÓN DE MÉTRICAS
 print("3. Evaluando el modelo...")
+# usamos el transformer para probar el modelo con los datos test (datos no vistos que han pasado el mismo pipeline que los de entrenamiento)
 predicciones = modelo.transform(test_data)
 
 # Métricas de error: RMSE para magnitud del error y R2 para bondad del ajuste

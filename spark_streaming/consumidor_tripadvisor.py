@@ -61,6 +61,8 @@ kafka_df = spark.readStream \
     .load()
 
 # Parseo de JSON binario a DataFrame relacional
+# vuelve a pasar de bytes a json y coge el json y lo convierte en una tabla de Spark
+# 'Dataframe' con el StructType que he definido arriba
 parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_str") \
     .select(from_json(col("json_str"), tripadvisor_schema).alias("data")) \
     .select("data.*")
@@ -68,9 +70,9 @@ parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_str") \
 
 
 # BLOQUE DE EJECUCIÓN DE CONSULTAS (STREAMING)
+#   3  grifos distintos:
 
-
-# ---> CONSULTA 0: Auditoría visual del flujo raw
+# ---> CONSULTA 0: Auditoría visual del flujo raw: escupe los datos por consola en modo append tal cual llegan
 query_raw = parsed_df.writeStream \
     .outputMode("append") \
     .format("console") \
@@ -88,7 +90,7 @@ query1 = consulta1_df.writeStream \
     .option("checkpointLocation", "./checkpoints/consulta1") \
     .start()
 
-# ---> CONSULTA 2: Agregación analítica por país (Modo Complete)
+# ---> CONSULTA 2: Agregación analítica por país (Modo Complete) por consola
 # Fuerza el re-cálculo global de la tabla con cada micro-lote
 consulta2_df = parsed_df.groupBy("country").count()
 
